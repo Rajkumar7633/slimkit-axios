@@ -195,6 +195,70 @@ console.log('Circuit breaker state:', stats.state);
 api.resetCircuitBreaker(); // Manually reset circuit
 ```
 
+### Request debouncing and throttling
+
+```js
+// Debouncing for search inputs
+const searchApi = axios.create({
+  baseURL: 'https://api.example.com',
+  debounce: {
+    enabled: true,
+    delay: 300, // Wait 300ms after last keystroke
+    trailing: true, // Execute after delay
+    leading: false, // Don't execute immediately
+    keyGenerator: (config) => `${config.method}:${config.url}`
+  }
+});
+
+// Throttling for rate-limited APIs
+const statusApi = axios.create({
+  baseURL: 'https://api.example.com',
+  throttle: {
+    enabled: true,
+    delay: 1000, // At most 1 request per second
+    leading: true, // Execute immediately on first call
+    trailing: false, // Don't execute on trailing edge
+    keyGenerator: (config) => config.url
+  }
+});
+
+// Combined debouncing and throttling
+const api = axios.create({
+  baseURL: 'https://api.example.com',
+  debounce: {
+    enabled: true,
+    delay: 300,
+    trailing: true
+  },
+  throttle: {
+    enabled: true,
+    delay: 1000,
+    leading: true
+  }
+});
+
+// Management methods
+const debounceManager = api.getDebounceManager();
+console.log('Pending debounces:', debounceManager.getPendingCount());
+debounceManager.clear(); // Clear all pending debounces
+
+const throttleManager = api.getThrottleManager();
+console.log('Pending throttles:', throttleManager.getPendingCount());
+throttleManager.clear(); // Clear all pending throttles
+```
+
+## Production features
+
+SlimKit Axios includes several production-ready features that go beyond standard Axios:
+
+- **Request caching**: LRU eviction with TTL support for performance optimization
+- **Automatic retry**: Exponential backoff for transient failures
+- **Circuit breaker**: Service resilience with automatic recovery
+- **Request debouncing**: Prevent excessive API calls for user inputs
+- **Request throttling**: Rate limiting for API protection
+
+Each feature can be configured independently and combined as needed for your use case.
+
 ## Drop-in compatibility
 
 The following APIs and behaviors are implemented as Axios-compatible replacements.

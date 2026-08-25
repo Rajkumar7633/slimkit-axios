@@ -19,6 +19,8 @@ These examples cover the supported `@slimkit/axios` API in focused, reusable fil
 | [`requests/cache.ts`](./requests/cache.ts) | Typed cache configuration with TypeScript | `npm run typecheck` |
 | [`requests/circuit-breaker.mjs`](./requests/circuit-breaker.mjs) | Circuit breaker pattern for resilience | Import into an application |
 | [`requests/circuit-breaker.ts`](./requests/circuit-breaker.ts) | Typed circuit breaker with TypeScript | `npm run typecheck` |
+| [`requests/debounce-throttle.mjs`](./requests/debounce-throttle.mjs) | Request debouncing and throttling | Import into an application |
+| [`requests/debounce-throttle.ts`](./requests/debounce-throttle.ts) | Typed debounce/throttle with TypeScript | `npm run typecheck` |
 | [`advanced/custom-fetch.mjs`](./advanced/custom-fetch.mjs) | Custom fetch implementation | Import into an application |
 | [`advanced/custom-adapter.mjs`](./advanced/custom-adapter.mjs) | Custom adapter | `node examples/advanced/custom-adapter.mjs` |
 

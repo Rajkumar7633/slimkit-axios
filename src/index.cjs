@@ -497,6 +497,285 @@ class CircuitBreaker {
   }
 }
 
+// DebounceManager for request debouncing
+class DebounceManager {
+  constructor(config = {}) {
+    this.config = {
+      enabled: true,
+      delay: 300, // Default 300ms delay
+      leading: false, // Don't execute on leading edge
+      trailing: true, // Execute on trailing edge
+      maxWait: null, // No maximum wait by default
+      keyGenerator: (config) => `${config.method || 'get'}:${config.url}`,
+      ...config
+    };
+    
+    this.pendingRequests = new Map();
+    this.pendingExecutions = new Map();
+  }
+  
+  _defaultKeyGenerator(config) {
+    return `${config.method || 'get'}:${config.url}`;
+  }
+  
+  _getKey(config) {
+    return (this.config.keyGenerator || this._defaultKeyGenerator.bind(this))(config);
+  }
+  
+  async execute(key, fn) {
+    if (!this.config.enabled) {
+      return await fn();
+    }
+    
+    // Check if there's already a pending execution for this key
+    if (this.pendingExecutions.has(key)) {
+      return await this.pendingExecutions.get(key);
+    }
+    
+    // Clear any existing timeout for this key
+    if (this.pendingRequests.has(key)) {
+      const pending = this.pendingRequests.get(key);
+      clearTimeout(pending.timeoutId);
+      if (pending.maxWaitTimeoutId) {
+        clearTimeout(pending.maxWaitTimeoutId);
+      }
+    }
+    
+    return new Promise((resolve, reject) => {
+      let timeoutId;
+      let maxWaitTimeoutId;
+      let hasExecuted = false;
+      
+      const executeFn = async () => {
+        if (hasExecuted) return;
+        hasExecuted = true;
+        
+        try {
+          const result = await fn();
+          this.pendingRequests.delete(key);
+          this.pendingExecutions.delete(key);
+          resolve(result);
+        } catch (error) {
+          this.pendingRequests.delete(key);
+          this.pendingExecutions.delete(key);
+          reject(error);
+        }
+      };
+      
+      // Leading edge execution
+      if (this.config.leading && !this.pendingRequests.has(key)) {
+        this.pendingExecutions.set(key, new Promise((res, rej) => {
+          executeFn().then(res).catch(rej);
+        }));
+        executeFn();
+      }
+      
+      // Trailing edge execution
+      if (this.config.trailing) {
+        timeoutId = setTimeout(() => {
+          if (!hasExecuted) {
+            if (!this.pendingExecutions.has(key)) {
+              this.pendingExecutions.set(key, new Promise((res, rej) => {
+                executeFn().then(res).catch(rej);
+              }));
+            }
+            executeFn();
+          }
+        }, this.config.delay);
+        
+        this.pendingRequests.set(key, { timeoutId, maxWaitTimeoutId });
+      }
+      
+      // Max wait timeout
+      if (this.config.maxWait && this.config.maxWait > this.config.delay) {
+        maxWaitTimeoutId = setTimeout(() => {
+          if (!hasExecuted) {
+            const pending = this.pendingRequests.get(key);
+            if (pending) {
+              clearTimeout(pending.timeoutId);
+            }
+            if (!this.pendingExecutions.has(key)) {
+              this.pendingExecutions.set(key, new Promise((res, rej) => {
+                executeFn().then(res).catch(rej);
+              }));
+            }
+            executeFn();
+          }
+        }, this.config.maxWait);
+        
+        this.pendingRequests.set(key, { timeoutId, maxWaitTimeoutId });
+      }
+    });
+  }
+  
+  clear(key) {
+    if (key) {
+      const pending = this.pendingRequests.get(key);
+      if (pending) {
+        clearTimeout(pending.timeoutId);
+        if (pending.maxWaitTimeoutId) {
+          clearTimeout(pending.maxWaitTimeoutId);
+        }
+        this.pendingRequests.delete(key);
+      }
+      this.pendingExecutions.delete(key);
+    } else {
+      // Clear all
+      this.pendingRequests.forEach((pending) => {
+        clearTimeout(pending.timeoutId);
+        if (pending.maxWaitTimeoutId) {
+          clearTimeout(pending.maxWaitTimeoutId);
+        }
+      });
+      this.pendingRequests.clear();
+      this.pendingExecutions.clear();
+    }
+  }
+  
+  async flush(key) {
+    if (key) {
+      const pending = this.pendingRequests.get(key);
+      if (pending) {
+        clearTimeout(pending.timeoutId);
+        if (pending.maxWaitTimeoutId) {
+          clearTimeout(pending.maxWaitTimeoutId);
+        }
+        // Execute immediately
+        if (!this.pendingExecutions.has(key)) {
+          // This will be handled by the execute function
+        }
+      }
+    } else {
+      // Flush all
+      this.pendingRequests.forEach((pending, k) => {
+        clearTimeout(pending.timeoutId);
+        if (pending.maxWaitTimeoutId) {
+          clearTimeout(pending.maxWaitTimeoutId);
+        }
+      });
+      this.pendingRequests.clear();
+    }
+  }
+  
+  getPendingCount() {
+    return this.pendingRequests.size + this.pendingExecutions.size;
+  }
+  
+  setConfig(config) {
+    this.config = { ...this.config, ...config };
+  }
+  
+  getConfig() {
+    return { ...this.config };
+  }
+}
+
+// ThrottleManager for request throttling
+class ThrottleManager {
+  constructor(config = {}) {
+    this.config = {
+      enabled: true,
+      delay: 1000, // Default 1 second delay
+      leading: true, // Execute on leading edge
+      trailing: false, // Don't execute on trailing edge
+      keyGenerator: (config) => `${config.method || 'get'}:${config.url}`,
+      ...config
+    };
+    
+    this.lastExecutions = new Map();
+    this.pendingRequests = new Map();
+  }
+  
+  _defaultKeyGenerator(config) {
+    return `${config.method || 'get'}:${config.url}`;
+  }
+  
+  _getKey(config) {
+    return (this.config.keyGenerator || this._defaultKeyGenerator.bind(this))(config);
+  }
+  
+  async execute(key, fn) {
+    if (!this.config.enabled) {
+      return await fn();
+    }
+    
+    const now = Date.now();
+    const lastExecution = this.lastExecutions.get(key) || 0;
+    const timeSinceLastExecution = now - lastExecution;
+    
+    // If enough time has passed, execute immediately
+    if (timeSinceLastExecution >= this.config.delay) {
+      this.lastExecutions.set(key, now);
+      return await fn();
+    }
+    
+    // Check if there's already a pending execution
+    if (this.pendingRequests.has(key)) {
+      return await this.pendingRequests.get(key);
+    }
+    
+    // Schedule execution after remaining delay
+    const remainingDelay = this.config.delay - timeSinceLastExecution;
+    
+    const executionPromise = new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(async () => {
+        try {
+          this.lastExecutions.set(key, Date.now());
+          this.pendingRequests.delete(key);
+          const result = await fn();
+          resolve(result);
+        } catch (error) {
+          this.pendingRequests.delete(key);
+          reject(error);
+        }
+      }, remainingDelay);
+      
+      this.pendingRequests.set(key, executionPromise);
+    });
+    
+    return executionPromise;
+  }
+  
+  clear(key) {
+    if (key) {
+      this.pendingRequests.delete(key);
+    } else {
+      this.pendingRequests.clear();
+    }
+  }
+  
+  async flush(key) {
+    if (key) {
+      const pending = this.pendingRequests.get(key);
+      if (pending) {
+        this.pendingRequests.delete(key);
+        try {
+          return await pending;
+        } catch (error) {
+          throw error;
+        }
+      }
+    } else {
+      // Flush all
+      const promises = Array.from(this.pendingRequests.values());
+      this.pendingRequests.clear();
+      await Promise.allSettled(promises);
+    }
+  }
+  
+  getPendingCount() {
+    return this.pendingRequests.size;
+  }
+  
+  setConfig(config) {
+    this.config = { ...this.config, ...config };
+  }
+  
+  getConfig() {
+    return { ...this.config };
+  }
+}
+
 class InterceptorManager {
   constructor() { this.handlers = []; }
   use(fulfilled, rejected, options = {}) { this.handlers.push({ fulfilled, rejected, synchronous: !!options.synchronous, runWhen: options.runWhen }); return this.handlers.length - 1; }
@@ -829,6 +1108,8 @@ class Axios {
     this.interceptors = { request: new InterceptorManager(), response: new InterceptorManager() };
     this.cache = new CacheManager(instanceConfig.cache);
     this.circuitBreaker = new CircuitBreaker(instanceConfig.circuitBreaker);
+    this.debounce = new DebounceManager(instanceConfig.debounce);
+    this.throttle = new ThrottleManager(instanceConfig.throttle);
   }
   request(configOrUrl, config) {
     try { return this._request(configOrUrl, config); } catch (error) { return Promise.reject(error); }
@@ -887,14 +1168,42 @@ class Axios {
       
       const adapter = getAdapter(current.adapter);
       
+      // Apply debouncing if enabled
+      const debounceConfig = current.debounce || this.defaults.debounce;
+      const shouldDebounce = debounceConfig && debounceConfig.enabled;
+      
+      // Apply throttling if enabled
+      const throttleConfig = current.throttle || this.defaults.throttle;
+      const shouldThrottle = throttleConfig && throttleConfig.enabled;
+      
       // Use circuit breaker if enabled
       const shouldUseCircuitBreaker = current.circuitBreaker || this.defaults.circuitBreaker;
-      const executeAdapter = shouldUseCircuitBreaker && shouldUseCircuitBreaker.enabled ? 
-        () => this.circuitBreaker.execute(() => adapter(current), current) : 
-        () => adapter(current);
+      
+      // Build the execution chain
+      let executeRequest = () => adapter(current);
+      
+      // Apply circuit breaker
+      if (shouldUseCircuitBreaker && shouldUseCircuitBreaker.enabled) {
+        const originalExecute = executeRequest;
+        executeRequest = () => this.circuitBreaker.execute(originalExecute, current);
+      }
+      
+      // Apply throttling
+      if (shouldThrottle) {
+        const originalExecute = executeRequest;
+        const throttleKey = (throttleConfig.keyGenerator || this.throttle._defaultKeyGenerator.bind(this.throttle))(current);
+        executeRequest = () => this.throttle.execute(throttleKey, originalExecute);
+      }
+      
+      // Apply debouncing
+      if (shouldDebounce) {
+        const originalExecute = executeRequest;
+        const debounceKey = (debounceConfig.keyGenerator || this.debounce._defaultKeyGenerator.bind(this.debounce))(current);
+        executeRequest = () => this.debounce.execute(debounceKey, originalExecute);
+      }
       
       try {
-        const response = await executeAdapter();
+        const response = await executeRequest();
         response.headers = AxiosHeaders.from(response.headers);
         checkCancel(current, response.request);
         response.data = transformData(current.transformResponse, current, response.data, response.headers, response);
@@ -950,6 +1259,16 @@ class Axios {
   setCircuitBreakerConfig(config) { this.circuitBreaker.setConfig(config); }
   getCircuitBreakerConfig() { return this.circuitBreaker.getConfig(); }
   resetCircuitBreaker() { this.circuitBreaker.reset(); }
+  
+  // Debounce management methods
+  getDebounceManager() { return this.debounce; }
+  setDebounceConfig(config) { this.debounce.setConfig(config); }
+  getDebounceConfig() { return this.debounce.getConfig(); }
+  
+  // Throttle management methods
+  getThrottleManager() { return this.throttle; }
+  setThrottleConfig(config) { this.throttle.setConfig(config); }
+  getThrottleConfig() { return this.throttle.getConfig(); }
 }
 for (const method of ['delete', 'get', 'head', 'options']) Axios.prototype[method] = function (url, config) { return this.request(url, { ...config, method }); };
 for (const method of ['post', 'put', 'patch', 'query']) {
@@ -981,7 +1300,7 @@ Object.assign(axios, {
   all: promises => Promise.all(promises), spread: callback => array => callback(...array),
   isCancel: value => !!(value && value.__CANCEL__), isAxiosError: value => !!(value && value.isAxiosError === true),
   toFormData, formToJSON, getAdapter,
-  mergeConfig, CacheManager, CircuitBreaker
+  mergeConfig, CacheManager, CircuitBreaker, DebounceManager, ThrottleManager
 });
 axios.default = axios;
 

@@ -31,8 +31,8 @@
   },
   "scripts": {
     "pretest": "npm run verify:esm",
-    "test": "node --test test/client.test.cjs test/cache.test.cjs test/circuit-breaker.test.cjs test/differential.test.cjs test/fetch-parity.test.cjs",
-    "test:unit": "node --test test/client.test.cjs test/cache.test.cjs test/circuit-breaker.test.cjs",
+    "test": "node --test test/client.test.cjs test/cache.test.cjs test/circuit-breaker.test.cjs test/debounce-throttle.test.cjs test/differential.test.cjs test/fetch-parity.test.cjs",
+    "test:unit": "node --test test/client.test.cjs test/cache.test.cjs test/circuit-breaker.test.cjs test/debounce-throttle.test.cjs",
     "test:compat": "node --test test/differential.test.cjs test/fetch-parity.test.cjs",
     "test:pack": "node scripts/verify-packed-artifact.cjs",
     "test:browser": "node --test test/browser.test.cjs",

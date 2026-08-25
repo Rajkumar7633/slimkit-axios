@@ -41,6 +41,21 @@ export class AxiosHeaders {
 }
 export interface AxiosProgressEvent { loaded: number; total?: number; progress?: number; bytes: number; rate?: number; estimated?: number; upload?: boolean; download?: boolean; lengthComputable: boolean; event?: any; }
 export interface TransitionalOptions { silentJSONParsing?: boolean; forcedJSONParsing?: boolean; clarifyTimeoutError?: boolean; legacyInterceptorReqResOrdering?: boolean; advertiseZstdAcceptEncoding?: boolean; validateStatusUndefinedResolves?: boolean; }
+export interface DebounceConfig {
+  enabled?: boolean;
+  delay?: number; // Delay in milliseconds
+  leading?: boolean; // Execute on leading edge
+  trailing?: boolean; // Execute on trailing edge
+  maxWait?: number; // Maximum wait time before execution
+  keyGenerator?: (config: any) => string; // Custom key generator for grouping requests
+}
+export interface ThrottleConfig {
+  enabled?: boolean;
+  delay?: number; // Delay in milliseconds between executions
+  leading?: boolean; // Execute on leading edge
+  trailing?: boolean; // Execute on trailing edge
+  keyGenerator?: (config: any) => string; // Custom key generator for grouping requests
+}
 export interface CircuitBreakerConfig {
   enabled?: boolean;
   failureThreshold?: number; // Number of failures before opening circuit
@@ -91,6 +106,8 @@ export interface AxiosRequestConfig<D = any> {
   retry?: RetryConfig;
   cache?: CacheConfig;
   circuitBreaker?: CircuitBreakerConfig;
+  debounce?: DebounceConfig;
+  throttle?: ThrottleConfig;
 }
 export type RawAxiosRequestConfig<D = any> = AxiosRequestConfig<D>;
 export interface HeadersDefaults {
@@ -141,6 +158,12 @@ export class Axios {
   setCircuitBreakerConfig(config: CircuitBreakerConfig): void;
   getCircuitBreakerConfig(): CircuitBreakerConfig;
   resetCircuitBreaker(): void;
+  getDebounceManager(): DebounceManager;
+  setDebounceConfig(config: DebounceConfig): void;
+  getDebounceConfig(): DebounceConfig;
+  getThrottleManager(): ThrottleManager;
+  setThrottleConfig(config: ThrottleConfig): void;
+  getThrottleConfig(): ThrottleConfig;
   get<T = any, R = AxiosResponse<T>, D = any>(url: string, config?: AxiosRequestConfig<D>): Promise<R>;
   delete<T = any, R = AxiosResponse<T>, D = any>(url: string, config?: AxiosRequestConfig<D>): Promise<R>;
   head<T = any, R = AxiosResponse<T>, D = any>(url: string, config?: AxiosRequestConfig<D>): Promise<R>;
@@ -192,6 +215,24 @@ export class CircuitBreaker {
   setConfig(config: CircuitBreakerConfig): void;
   getConfig(): CircuitBreakerConfig;
 }
+export class DebounceManager {
+  constructor(config?: DebounceConfig);
+  execute<T>(key: string, fn: () => Promise<T>): Promise<T>;
+  clear(key?: string): void;
+  flush(key?: string): Promise<void>;
+  getPendingCount(): number;
+  setConfig(config: DebounceConfig): void;
+  getConfig(): DebounceConfig;
+}
+export class ThrottleManager {
+  constructor(config?: ThrottleConfig);
+  execute<T>(key: string, fn: () => Promise<T>): Promise<T>;
+  clear(key?: string): void;
+  flush(key?: string): Promise<void>;
+  getPendingCount(): number;
+  setConfig(config: ThrottleConfig): void;
+  getConfig(): ThrottleConfig;
+}
 export const VERSION: string;
 export const HttpStatusCode: Readonly<Record<string, number>>;
 export function isCancel(value: any): value is CanceledError;
@@ -209,6 +250,8 @@ export interface AxiosStatic extends AxiosInstance {
   isCancel: typeof isCancel; isAxiosError: typeof isAxiosError; all: typeof all; spread: typeof spread; toFormData: typeof toFormData;
   formToJSON: typeof formToJSON; getAdapter: typeof getAdapter; mergeConfig: typeof mergeConfig; CacheConfig: CacheConfig; CacheManager: typeof CacheManager; CacheEntry: typeof CacheEntry;
   CircuitBreakerConfig: CircuitBreakerConfig; CircuitBreaker: typeof CircuitBreaker;
+  DebounceConfig: DebounceConfig; DebounceManager: typeof DebounceManager;
+  ThrottleConfig: ThrottleConfig; ThrottleManager: typeof ThrottleManager;
 }
 declare const axios: AxiosStatic;
 export default axios;
